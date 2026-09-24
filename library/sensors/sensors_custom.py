@@ -1,101 +1,176 @@
+# Custom data classes for turing-smart-screen themes
+#
+# LLM token stats: poll the Prometheus /metrics endpoint of a vLLM (or any
+# OpenAI-compatible server exposing ``vllm:*_tokens_total``) and expose
+# cumulative token total + live token rate, like nvitop's LLM panel.
+# Configure target with env var TURING_LLM_METRICS_URL
+# (default http://127.0.0.1:8000/metrics).
+#
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
-# turing-smart-screen-python - a Python system monitor and library for USB-C displays like Turing Smart Screen or XuanFang
-# https://github.com/mathoudebine/turing-smart-screen-python/
-#
-# Copyright (C) 2021 Matthieu Houdebine (mathoudebine)
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-# This file allows to add custom data source as sensors and display them in System Monitor themes
-# There is no limitation on how much custom data source classes can be added to this file
-# See CustomDataExample theme for the theme implementation part
 
 import math
+import os
 import platform
+import re
+import time
+import urllib.request
+from collections import deque
 from abc import ABC, abstractmethod
 from typing import List
 
+# ---------------------------------------------------------------------------
+# Base class: theme-facing custom data source (required by library/stats.py)
+# ---------------------------------------------------------------------------
 
-# Custom data classes must be implemented in this file, inherit the CustomDataSource and implement its 2 methods
 class CustomDataSource(ABC):
     @abstractmethod
     def as_numeric(self) -> float:
-        # Numeric value will be used for graph and radial progress bars
-        # If there is no numeric value, keep this function empty
+        """Numeric value used for graph / radial progress bars (empty if none)."""
         pass
 
     @abstractmethod
     def as_string(self) -> str:
-        # Text value will be used for text display and radial progress bar inner text
-        # Numeric value can be formatted here to be displayed as expected
-        # It is also possible to return a text unrelated to the numeric value
-        # If this function is empty, the numeric value will be used as string without formatting
+        """Text value used for text display / radial inner text."""
         pass
 
     @abstractmethod
     def last_values(self) -> List[float]:
-        # List of last numeric values will be used for plot graph
-        # If you do not want to draw a line graph or if your custom data has no numeric values, keep this function empty
+        """Recent numeric values for line graphs (empty list if none)."""
         pass
 
 
-# Example for a custom data class that has numeric and text values
-class ExampleCustomNumericData(CustomDataSource):
-    # This list is used to store the last 10 values to display a line graph
-    last_val = [math.nan] * 10  # By default, it is filed with math.nan values to indicate there is no data stored
+# ---------------------------------------------------------------------------
+# Shared poller: one HTTP fetch per ~1 s window feeds all custom classes
+# ---------------------------------------------------------------------------
+
+_COUNTER_RE = re.compile(
+    r'^vllm:(?P<kind>prompt|generation)_tokens_total'
+    r'\{(?P<labels>[^}]*)\}\s+(?P<value>[0-9eE.+-]+)',
+    re.MULTILINE,
+)
+
+
+class _LLMTokenCollector:
+    """Polls vLLM metrics, keeping total tokens and per-second rate."""
+
+    def __init__(self, url: str, history_length: int = 10):
+        self.url = url
+        self.timeout = 3
+        self.total: float = math.nan
+        self.rate: float = math.nan
+        self.rate_history: deque = deque(maxlen=history_length)
+        self._last_counters = None
+        self._last_time = None
+        self._last_poll = 0.0
+
+    def _fetch(self):
+        try:
+            req = urllib.request.Request(self.url, headers={"Accept": "text/plain"})
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except Exception:
+            return None
+
+    def poll(self) -> None:
+        now = time.time()
+        # Multiple custom classes read in the same scheduler pass: single fetch.
+        if self._last_poll and (now - self._last_poll) < 1.0:
+            return
+        self._last_poll = now
+
+        text = self._fetch()
+        if text is None:
+            # Unreachable: keep last known total, zero the rate.
+            if not math.isnan(self.total):
+                self.rate = 0.0
+            self.rate_history.append(self.rate if not math.isnan(self.rate) else math.nan)
+            return
+
+        prompt = generation = 0.0
+        found = False
+        for m in _COUNTER_RE.finditer(text):
+            found = True
+            value = float(m.group("value"))
+            if m.group("kind") == "prompt":
+                prompt += value
+            else:
+                generation += value
+
+        if not found:
+            return
+
+        total = prompt + generation
+        elapsed = (now - self._last_time) if self._last_time is not None else None
+        if (
+            self._last_counters is not None
+            and elapsed
+            and elapsed > 0
+            and total >= self._last_counters
+        ):
+            self.rate = (total - self._last_counters) / elapsed
+        else:
+            # First sample after start-up, or counter reset (server restart).
+            self.rate = 0.0
+
+        self.total = total
+        self._last_counters = total
+        self._last_time = now
+        self.rate_history.append(self.rate)
+
+
+def _human_tokens(value: float) -> str:
+    """Token counts rendered human-readably, fixed 6-char width (anti-ghosting)."""
+    if math.isnan(value):
+        return " offline"
+    if value >= 1e9:
+        return f"{value / 1e9:5.2f}G"
+    if value >= 1e6:
+        return f"{value / 1e6:5.2f}M"
+    if value >= 1e3:
+        return f"{value / 1e3:5.1f}K"
+    return f"{value:6.0f}"
+
+
+def _human_rate(value: float) -> str:
+    if math.isnan(value):
+        return "offline"
+    return f"{value:6.0f} t/s"
+
+
+_COLLECTOR = _LLMTokenCollector(
+    os.environ.get("TURING_LLM_METRICS_URL", "http://127.0.0.1:8000/metrics")
+)
+
+
+# ---------------------------------------------------------------------------
+# Theme-facing custom data sources
+# ---------------------------------------------------------------------------
+
+class LLMTokenTotal(CustomDataSource):
+    """Cumulative LLM tokens served (prompt + generation) by the local vLLM."""
 
     def as_numeric(self) -> float:
-        # Numeric value will be used for graph and radial progress bars
-        # Here a Python function from another module can be called to get data
-        # Example: self.value = my_module.get_rgb_led_brightness() / audio.system_volume() ...
-        self.value = 75.845
-
-        # Store the value to the history list that will be used for line graph
-        self.last_val.append(self.value)
-        # Also remove the oldest value from history list
-        self.last_val.pop(0)
-
-        return self.value
+        _COLLECTOR.poll()
+        return _COLLECTOR.total
 
     def as_string(self) -> str:
-        # Text value will be used for text display and radial progress bar inner text.
-        # Numeric value can be formatted here to be displayed as expected
-        # It is also possible to return a text unrelated to the numeric value
-        # If this function is empty, the numeric value will be used as string without formatting
-        # Example here: format numeric value: add unit as a suffix, and keep 1 digit decimal precision
-        return f'{self.value:>5.1f}%'
-        # Important note! If your numeric value can vary in size, be sure to display it with a default size.
-        # E.g. if your value can range from 0 to 9999, you need to display it with at least 4 characters every time.
-        # --> return f'{self.as_numeric():>4}%'
-        # Otherwise, part of the previous value can stay displayed ("ghosting") after a refresh
+        _COLLECTOR.poll()
+        return _human_tokens(_COLLECTOR.total)
 
     def last_values(self) -> List[float]:
-        # List of last numeric values will be used for plot graph
-        return self.last_val
+        pass
 
 
-# Example for a custom data class that only has text values
-class ExampleCustomTextOnlyData(CustomDataSource):
+class LLMTokenRate(CustomDataSource):
+    """Live LLM token throughput (tokens per second) of the local vLLM."""
+
     def as_numeric(self) -> float:
-        # If there is no numeric value, keep this function empty
-        pass
+        _COLLECTOR.poll()
+        return _COLLECTOR.rate
 
     def as_string(self) -> str:
-        # If a custom data class only has text values, it won't be possible to display graph or radial bars
-        return "Python: " + platform.python_version()
+        _COLLECTOR.poll()
+        return _human_rate(_COLLECTOR.rate)
 
     def last_values(self) -> List[float]:
-        # If a custom data class only has text values, it won't be possible to display line graph
-        pass
+        return list(_COLLECTOR.rate_history)
