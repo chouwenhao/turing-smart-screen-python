@@ -121,6 +121,29 @@ def display_themed_value(theme_data, value, min_size=0, unit=''):
     )
 
 
+def display_themed_memory_value(theme_data, value_mb):
+    """Display a memory amount, scaled to platform size:
+    >= 1 GiB renders as GB with one decimal (e.g. "102.3 G"),
+    otherwise as integer MB. Necessary on unified-memory platforms like
+    NVIDIA GB10 (DGX Spark, 128 GB) where MB values reach six digits."""
+    if value_mb is None or math.isnan(value_mb):
+        value_mb = 0
+    if value_mb >= 1024:
+        display_themed_value(
+            theme_data=theme_data,
+            value=f"{value_mb / 1024:.1f}",
+            min_size=5,
+            unit=" G"
+        )
+    else:
+        display_themed_value(
+            theme_data=theme_data,
+            value=int(value_mb),
+            min_size=5,
+            unit=" M"
+        )
+
+
 def display_themed_percent_value(theme_data, value):
     display_themed_value(
         theme_data=theme_data,
@@ -424,12 +447,7 @@ class Gpu:
 
         display_themed_progress_bar(gpu_mem_graph_data, memory_percentage)
         display_themed_percent_radial_bar(gpu_mem_radial_data, memory_percentage)
-        display_themed_value(
-            theme_data=gpu_mem_text_data,
-            value=int(memory_used_mb),
-            min_size=5,
-            unit=" M"
-        )
+        display_themed_memory_value(gpu_mem_text_data, memory_used_mb)
         ################################ end of backward compatibility only
 
         # GPU usage (%)
@@ -481,12 +499,7 @@ class Gpu:
                 logger.warning("Your GPU memory absolute usage (M) is not supported yet")
                 gpu_mem_used_text_data['SHOW'] = False
 
-        display_themed_value(
-            theme_data=gpu_mem_used_text_data,
-            value=int(memory_used_mb),
-            min_size=5,
-            unit=" M"
-        )
+        display_themed_memory_value(gpu_mem_used_text_data, memory_used_mb)
 
         # GPU mem. total memory (M)
         gpu_mem_total_text_data = theme_gpu_data['MEMORY_TOTAL']['TEXT']
@@ -496,12 +509,7 @@ class Gpu:
                 logger.warning("Your GPU total memory capacity (M) is not supported yet")
                 gpu_mem_total_text_data['SHOW'] = False
 
-        display_themed_value(
-            theme_data=gpu_mem_total_text_data,
-            value=int(total_memory_mb),
-            min_size=5,  # Adjust min_size as necessary for your display
-            unit=" M"  # Assuming the unit is in Megabytes
-        )
+        display_themed_memory_value(gpu_mem_total_text_data, total_memory_mb)
 
         # GPU temperature (°C)
         gpu_temp_text_data = theme_gpu_data['TEMPERATURE']['TEXT']
@@ -624,23 +632,17 @@ class Memory:
         display_themed_percent_value(memory_stats_theme_data['VIRTUAL']['PERCENT_TEXT'], virtual_percent)
         display_themed_line_graph(memory_stats_theme_data['VIRTUAL']['LINE_GRAPH'], cls.last_values_memory_virtual)
 
-        display_themed_value(
+        display_themed_memory_value(
             theme_data=memory_stats_theme_data['VIRTUAL']['USED'],
-            value=int(sensors.Memory.virtual_used() / 1024 ** 2),
-            min_size=5,
-            unit=" M"
+            value_mb=sensors.Memory.virtual_used() / 1024 ** 2
         )
-        display_themed_value(
+        display_themed_memory_value(
             theme_data=memory_stats_theme_data['VIRTUAL']['FREE'],
-            value=int(sensors.Memory.virtual_free() / 1024 ** 2),
-            min_size=5,
-            unit=" M"
+            value_mb=sensors.Memory.virtual_free() / 1024 ** 2
         )
-        display_themed_value(
+        display_themed_memory_value(
             theme_data=memory_stats_theme_data['VIRTUAL']['TOTAL'],
-            value=int((sensors.Memory.virtual_free() + sensors.Memory.virtual_used()) / 1024 ** 2),
-            min_size=5,
-            unit=" M"
+            value_mb=(sensors.Memory.virtual_free() + sensors.Memory.virtual_used()) / 1024 ** 2
         )
 
 
