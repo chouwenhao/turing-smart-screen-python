@@ -161,7 +161,37 @@ class Cpu(sensors.Cpu):
         except:
             # psutil.sensors_temperatures not available on Windows / MacOS
             pass
+        if math.isnan(cpu_temp):
+            # Fallback: scan /sys/class/thermal thermal zones directly.
+            # Covers platforms like NVIDIA GB10 (DGX Spark) whose sensor
+            # reports as 'acpitz' instead of coretemp/k10temp/cpu_thermal.
+            cpu_temp = Cpu._temperature_from_thermal_zones()
         return cpu_temp
+
+    @staticmethod
+    def _temperature_from_thermal_zones() -> float:
+        try:
+            import glob
+            max_zone_temp = math.nan
+            cpu_zone_temp = math.nan
+            for zone_id in range(10):
+                temp_path = f"/sys/class/thermal/thermal_zone{zone_id}/temp"
+                type_path = f"/sys/class/thermal/thermal_zone{zone_id}/type"
+                try:
+                    with open(type_path, "r") as f:
+                        zone_type = f.read().strip().lower()
+                    with open(temp_path, "r") as f:
+                        zone_temp = int(f.read().strip()) / 1000
+                except (IOError, ValueError):
+                    continue
+                if "cpu" in zone_type or "soc" in zone_type:
+                    cpu_zone_temp = zone_temp
+                elif math.isnan(max_zone_temp):
+                    # First usable zone (e.g. acpitz on GB10)
+                    max_zone_temp = zone_temp
+            return cpu_zone_temp if not math.isnan(cpu_zone_temp) else max_zone_temp
+        except:
+            return math.nan
 
     @staticmethod
     def fan_percent(fan_name: str = None) -> float:
