@@ -307,6 +307,24 @@ class GpuNvidia(sensors.Gpu):
         except:
             temperature = math.nan
 
+        # NVIDIA GB10 (DGX Spark) is a unified-memory SoC: it reports no
+        # dedicated GPU memory via NVML/nvidia-smi (N/A), so GPUtil's
+        # memoryUsed/memoryTotal are NaN. All system memory is GPU
+        # accessible, so fall back to system memory stats.
+        if math.isnan(memory_used_mb) or math.isnan(memory_total_mb):
+            try:
+                vm = psutil.virtual_memory()
+                if math.isnan(memory_total_mb):
+                    memory_total_mb = vm.total / 1024 / 1024
+                if math.isnan(memory_used_mb):
+                    memory_used_mb = vm.used / 1024 / 1024
+                try:
+                    memory_percentage = (memory_used_mb / memory_total_mb) * 100
+                except:
+                    memory_percentage = math.nan
+            except:
+                pass
+
         return load, memory_percentage, memory_used_mb, memory_total_mb, temperature
 
     @staticmethod
