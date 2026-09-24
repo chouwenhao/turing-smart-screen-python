@@ -1,0 +1,171 @@
+---
+author: "@mathoudebine"
+
+display:
+  DISPLAY_SIZE: 3.5"
+  DISPLAY_ORIENTATION: landscape
+  DISPLAY_RGB_LED: 255, 125, 12
+
+static_images:
+  BACKGROUND:
+    PATH: background.png
+    X: 0
+    Y: 0
+    WIDTH: 480
+    HEIGHT: 320
+
+static_text:
+  NETWORK:
+   TEXT: LLM
+   X: 106
+   Y: 26
+   FONT: roboto/Roboto-Bold.ttf
+   FONT_SIZE: 13
+   FONT_COLOR: 255, 224, 139
+   BACKGROUND_COLOR: 255, 125, 12
+
+STATS:
+  CPU:
+    PERCENTAGE:
+      INTERVAL: 1
+      GRAPH:
+        SHOW: True
+        X: 14
+        Y: 127
+        WIDTH: 104
+        HEIGHT: 8
+        MIN_VALUE: 0
+        MAX_VALUE: 100
+        BAR_COLOR: 14, 170, 129
+        BAR_OUTLINE: False
+        BACKGROUND_IMAGE: background.png
+    TEMPERATURE:
+      INTERVAL: 5
+      TEXT:
+        SHOW: True
+        SHOW_UNIT: True
+        X: 4
+        Y: 66
+        FONT: jetbrains-mono/JetBrainsMono-ExtraBold.ttf
+        FONT_SIZE: 35
+        FONT_COLOR: 0, 0, 0
+        BACKGROUND_IMAGE: background.png
+  MEMORY:
+    INTERVAL: 5
+    VIRTUAL:
+      GRAPH:
+        SHOW: True
+        X: 168
+        Y: 287
+        WIDTH: 96
+        HEIGHT: 8
+        MIN_VALUE: 0
+        MAX_VALUE: 100
+        BAR_COLOR: 252, 60, 13
+        BAR_OUTLINE: False
+        BACKGROUND_IMAGE: background.png
+      PERCENT_TEXT:
+        SHOW: True
+        SHOW_UNIT: True
+        X: 158
+        Y: 232
+        FONT: jetbrains-mono/JetBrainsMono-ExtraBold.ttf
+        FONT_SIZE: 35
+        FONT_COLOR: 0, 0, 0
+        BACKGROUND_IMAGE: background.png
+  GPU:
+    INTERVAL: 1
+    PERCENTAGE:
+      GRAPH:
+        SHOW: True
+        X: 382
+        Y: 200
+        WIDTH: 86
+        HEIGHT: 8
+        MIN_VALUE: 0
+        MAX_VALUE: 100
+        BAR_COLOR: 14, 170, 129
+        BAR_OUTLINE: False
+        BACKGROUND_IMAGE: background.png
+    TEMPERATURE:
+      TEXT:
+        SHOW: True
+        SHOW_UNIT: True
+        X: 354
+        Y: 222
+        FONT: jetbrains-mono/JetBrainsMono-ExtraBold.ttf
+        FONT_SIZE: 35
+        FONT_COLOR: 0, 0, 0
+        BACKGROUND_IMAGE: background.png
+  DISK:
+    INTERVAL: 10
+    USED:
+      PERCENT_TEXT:
+        SHOW: True
+        SHOW_UNIT: True
+        X: 153
+        Y: 90
+        FONT: jetbrains-mono/JetBrainsMono-ExtraBold.ttf
+        FONT_SIZE: 30
+        FONT_COLOR: 255, 224, 139
+        BACKGROUND_IMAGE: background.png
+  NET:
+    INTERVAL: 0
+    ETH:
+      UPLOAD:
+        TEXT:
+          SHOW: False
+          X: 101
+          Y: 40
+          FONT: jetbrains-mono/JetBrainsMono-ExtraBold.ttf
+          FONT_SIZE: 17
+          FONT_COLOR: 255, 224, 139
+          BACKGROUND_IMAGE: background.png
+  CUSTOM:
+    INTERVAL: 1
+    LLMTokenTotal:
+      TEXT:
+        SHOW: True
+        X: 101
+        Y: 40
+        FONT: jetbrains-mono/JetBrainsMono-ExtraBold.ttf
+        FONT_SIZE: 17
+        FONT_COLOR: 255, 224, 139
+        BACKGROUND_IMAGE: background.png
+    LLMTokenRate:
+      TEXT:
+        SHOW: True
+        X: 101
+        Y: 58
+        FONT: jetbrains-mono/JetBrainsMono-Bold.ttf
+        FONT_SIZE: 14
+        FONT_COLOR: 255, 255, 255
+        BACKGROUND_IMAGE: background.png
+  DATE:
+    # For time display, it is recommended not to change the interval: keep to 1
+    INTERVAL: 1
+    DAY: # Format (Y/M/D ordering, month/day translations...) will match your computer locale
+      TEXT:
+        FORMAT: short # short (2/20/23) / medium (Feb 20, 2023) / long (February 20, 2023) / full (Monday, February 20, 2023)
+        SHOW: True
+        X: 220
+        Y: 44
+        FONT: GlowSansSC-Compressed/GlowSansSC-Compressed-Bold.otf
+        FONT_SIZE: 13
+        FONT_COLOR: 0, 0, 0
+        BACKGROUND_IMAGE: background.png
+        WIDTH: 120
+        ANCHOR: lt
+    HOUR: # Format (12/24h, timezone translations) will match your computer locale
+      TEXT:
+        FORMAT: medium # short (6:48 PM) / medium (6:48:53 PM) / long (6:48:53 PM UTC) / full (6:48:53 PM Coordinated Universal Time)
+        SHOW: True
+        X: 208
+        Y: 24
+        FONT: GlowSansSC-Compressed/GlowSansSC-Compressed-Bold.otf
+        FONT_SIZE: 17
+        FONT_COLOR: 0, 0, 0
+        BACKGROUND_IMAGE: background.png
+        WIDTH: 120
+        ANCHOR: lt
+
