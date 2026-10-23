@@ -43,11 +43,26 @@ class CustomDataSource(ABC):
 # Shared poller: one HTTP fetch per ~1 s window feeds all custom classes
 # ---------------------------------------------------------------------------
 
+# Supports vLLM ("vllm:prompt_tokens_total{model=...} N"), veloGB10
+# ("velogb10_prompt_tokens_total N") and TensorFold ("tensorfold:prompt_...").
 _COUNTER_RE = re.compile(
-    r'^vllm:(?P<kind>prompt|generation)_tokens_total'
-    r'\{(?P<labels>[^}]*)\}\s+(?P<value>[0-9eE.+-]+)',
+    r'^(?:vllm:|velogb10_|tensorfold:)(?P<kind>prompt|generation)_tokens_total'
+    r'(?:\{[^}]*\})?\s+(?P<value>[0-9eE.+-]+)',
     re.MULTILINE,
 )
+# True LIVE generation speed for veloGB10: token totals commit only when a
+# request FINISHES. The scheduler step gauge advances continuously while
+# decoding; instant speed = d(steps)/dt * (spec_emitted_total / steps_total).
+_STEPS_RE = re.compile(r'^velogb10_scheduler_steps_total\s+([0-9eE.+-]+)', re.MULTILINE)
+_EMIT_RE = re.compile(r'^velogb10_spec_emitted_tokens_total\s+([0-9eE.+-]+)', re.MULTILINE)
+_RUNNING_RE = re.compile(r'^(?:velogb10_requests_running|tensorfold:requests_running)'
+                         r'(?:\{[^}]*\})?\s+([0-9eE.+-]+)', re.MULTILINE)
+# TensorFold commits every *_total at request finish too, but
+# generation_tokens_running (tokens held by live streams) moves every decode
+# round: d(running)/dt is the instant tokens/s directly.
+_TF_RUNTOK_RE = re.compile(
+    r'^tensorfold:generation_tokens_running(?:\{[^}]*\})?\s+([0-9eE.+-]+)',
+    re.MULTILINE)
 
 
 class _LLMTokenCollector:
@@ -62,6 +77,9 @@ class _LLMTokenCollector:
         self._last_counters = None
         self._last_time = None
         self._last_poll = 0.0
+        self._decode_hist = None
+        self._decode_ema = None
+        self._decode_time = None
 
     def _fetch(self):
         try:
@@ -111,6 +129,40 @@ class _LLMTokenCollector:
         else:
             # First sample after start-up, or counter reset (server restart).
             self.rate = 0.0
+
+        # veloGB10 / TensorFold freeze token totals until each request
+        # finishes. veloGB10: step gauge moves continuously, instant speed ~=
+        # d(steps)/dt * (spec_emitted_total / steps_total). TensorFold:
+        # generation_tokens_running (live-stream tokens) moves every round,
+        # d(running)/dt is tokens/s directly. Both EMA'd.
+        st = _STEPS_RE.search(text)
+        tf = None if st else _TF_RUNTOK_RE.search(text)
+        r = _RUNNING_RE.search(text)
+        running = float(r.group(1)) if r else 0.0
+        if st or tf:
+            if st:
+                qty = float(st.group(1))
+                em = _EMIT_RE.search(text)
+                emit = float(em.group(1)) if em else None
+            else:
+                qty = float(tf.group(1)) if tf else 0.0
+                emit = None  # qty already in tokens: multiplier 1
+            elapsed = (now - self._decode_time) if self._decode_time else 0.0
+            inst = None
+            if self._decode_hist is not None and elapsed > 0:
+                d = qty - self._decode_hist[0]
+                if d >= 0:
+                    if emit is not None and qty > 0:
+                        inst = (d / elapsed) * (emit / qty)
+                    else:
+                        inst = d / elapsed
+            self._decode_hist = (qty, emit)
+            self._decode_time = now
+            if inst is not None:
+                self._decode_ema = (inst if self._decode_ema is None
+                                    else 0.3 * inst + 0.7 * self._decode_ema)
+            if running > 0 and self._decode_ema is not None:
+                self.rate = max(self.rate, self._decode_ema)
 
         self.total = total
         self._last_counters = total
