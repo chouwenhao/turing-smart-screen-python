@@ -68,8 +68,11 @@ _TF_RUNTOK_RE = re.compile(
 class _LLMTokenCollector:
     """Polls vLLM metrics, keeping total tokens and per-second rate."""
 
-    def __init__(self, url: str, history_length: int = 10):
+    def __init__(self, url: str, history_length: int = 10, api_key: str = ""):
         self.url = url
+        # Bearer token for servers that gate /metrics behind an API key
+        # (e.g. TensorFold with TENSORFOLD_API_KEY set).
+        self.api_key = api_key or os.environ.get("TURING_LLM_API_KEY", "")
         self.timeout = 3
         self.total: float = math.nan
         self.rate: float = math.nan
@@ -83,7 +86,10 @@ class _LLMTokenCollector:
 
     def _fetch(self):
         try:
-            req = urllib.request.Request(self.url, headers={"Accept": "text/plain"})
+            headers = {"Accept": "text/plain"}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            req = urllib.request.Request(self.url, headers=headers)
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return resp.read().decode("utf-8", errors="replace")
         except Exception:
